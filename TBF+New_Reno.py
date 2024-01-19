@@ -20,6 +20,14 @@ state = 0 #SlowStart. Fast Recovery is 1
 num_dup = 0
 tau = 0
 
+##set of constants for updating the RTO
+init_r = False
+MINUNIT = 5
+ralpha = 1/8
+rbeta = 1/4
+rK = 4
+rG = MINUNIT
+
 random.seed(5)
 
 #STEP
@@ -72,6 +80,16 @@ while state == 0:
             num_dup = 1
             ## increment cwnd 
             cwnd +=  1
+            ##update RTO
+            if(not init_r):
+                srtt = rtt
+                rttvar = rtt/2
+                init_r = True
+            else:
+                rttvar = (1-rbeta)*rttvar + rbeta*abs(srtt-rtt)
+                srtt = (1-ralpha)*srtt + ralpha*rtt
+            rto = srtt + max(rG, rK*rttvar)
+            print(f"rtt is {rtt} and rto is {rto}")
             ## fill in pkt_buf with as many new packets as possible
             ## that is, to fill cwnd w/o overflowing the buffer
             while pkt_buf.qsize() < beta and  (last_pkt_sent - ack) < cwnd:
