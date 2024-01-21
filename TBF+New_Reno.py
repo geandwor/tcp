@@ -4,11 +4,12 @@ from typing import Dict
 
 received: Dict[int, bool] = {}
 first_sent: Dict[int,int] = {}  #set to tau on first transmission and 0 on retransmits
-pkt_buf: Queue[int] = Queue()
+pkt_buf: Queue(int) = Queue()
 
 
 # Enqueue a list of elements
 pkt_buf.put(1)
+first_sent[1] = 0
 tokens = 1
 last_pkt_sent = 1
 last_ack_sent = 0
@@ -27,9 +28,12 @@ ralpha = 1/8
 rbeta = 1/4
 rK = 4
 rG = MINUNIT
+rto = 10
 
+#exponentialbackoff state = 2
+##seed 4 will cause exponential backoff
 random.seed(5)
-
+pkts_sent = []
 #STEP
 while state == 0:
     tau += 1
@@ -41,6 +45,8 @@ while state == 0:
     tokens = min(tokens - num_tokens + 1,K)
     # prepare packets to be sent to queue; if first transmission, record time
     pkts_sent = []
+    ##???? 1.I think we can ransomized the sending order
+    ##???? 2.there is problem for the first sent package, currently the sent time = received time, it is not right
     for _ in range(num_tokens):
         pkt = pkt_buf.get()
         if pkt not in first_sent:
@@ -58,12 +64,20 @@ while state == 0:
     while pkts_sent:
         pkt = pkts_sent.pop(0)
         received[pkt] = True
+        print(f"received packet {pkt}")
         cur = last_ack_sent + 1
+        ##????I believe there is some problem
         while received.get(cur, False):
             cur += 1
         cur -= 1
         ack_buf.append(cur)
         last_ack_sent = cur
+#    pkts_sent = []
+#    for _ in range(num_tokens):
+#        pkt = pkt_buf.get()
+#        if pkt not in first_sent:
+#            first_sent[pkt] = tau
+#        pkts_sent.append(pkt)
 
 #
 #Sender processing acks (in ack_buf)
@@ -73,7 +87,13 @@ while state == 0:
         if ack > last_ack_rcvd:
             # if a new ack then process it:
             rtt = tau - first_sent[last_ack_rcvd + 1] ## not correct. only if first_sent[last_ack_rcvd + 1..ack] > 0
-            print(f"New RTT sample with ack: {ack} and packet {last_ack_rcvd + 1}")
+            print(f"New RTT sample with ack: {ack} and packet {last_ack_rcvd + 1} current rto is {rto} ")
+            if(rtt>rto):
+                print(f"going into exponential backoff")
+                state = 2 ##exponential backoff
+                break
+                
+                
             ## update last_ack
             last_ack_rcvd = ack
             ## indicate it's the first time ack is received
@@ -95,6 +115,9 @@ while state == 0:
             while pkt_buf.qsize() < beta and  (last_pkt_sent - ack) < cwnd:
                 last_pkt_sent += 1
                 pkt_buf.put(last_pkt_sent)
+                #time to sent
+                if last_pkt_sent not in first_sent:
+                    first_sent[last_pkt_sent] = tau
             if last_pkt_sent - ack < cwnd:
                 ### cwnd is larger than buffer's capacity, then pkts are dropped
                 ### suffices to increase last_pkt_sent 
