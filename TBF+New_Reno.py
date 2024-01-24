@@ -9,7 +9,6 @@ pkt_buf: Queue((int, int)) = Queue() # queue of tuple(pkt_id, time)
 
 # Enqueue a list of elements
 pkt_buf.put((1,0))
-tokens = 1
 last_pkt_sent = 1
 last_ack_sent = 0
 last_ack_rcvd = 0
@@ -19,7 +18,12 @@ cwnd = 1
 state = 0 #SlowStart. Fast Recovery is 1 
 num_dup = 0
 tau = 0
+
 C = 2 #speed for sending packages
+#keep token length <=D
+tokens = []
+tokens.append(C)
+D = 5#time to live for tokens
 
 ##set of constants for updating the RTO
 init_r :bool = False
@@ -40,11 +44,38 @@ random.seed(5)
 while state == 0:
     tau += 1
     # max number of tokens 
-    bound = min(tokens, pkt_buf.qsize())
+    if(len(tokens)>D):
+        tokens.pop(0)
+    
+    bound = min(sum(tokens), pkt_buf.qsize())
+    print(f"before tokens is {tokens} bound is {bound}")
     # choose a number of tokens to remove. 
     num_tokens = random.randint(0, bound)
     # remove the tokens and add 1 for the next time step, not to exceed K
-    tokens = min(tokens - num_tokens + C, K)
+    nt_copy = num_tokens
+    tokens.append(C)
+    for i in range(len(tokens)):
+        if nt_copy>0:
+            if tokens[i]>0:
+                if tokens[i]<=nt_copy:
+                    tokens[i] = 0
+                    nt_copy -= tokens[i]
+                else:
+                    tokens[i] -= nt_copy
+                    nt_copy = 0
+    if sum(tokens)>K:
+        token_remove = sum(tokens) - K
+        for i in range(len(tokens)):
+            if token_remove>0:
+                if tokens[i]>0:
+                    if tokens[i]<=token_remove:
+                        tokens[i] = 0
+                        token_remove -= tokens[i]
+                    else:
+                        tokens[i] -= token_remove
+                        token_remove = 0
+    print(f"tokens is {tokens}")       
+    #tokens = min(tokens - num_tokens + C, K)
     # prepare packets to be sent to queue; if first transmission, record time
     pkts_sent = []
     for _ in range(num_tokens):
