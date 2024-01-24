@@ -4,11 +4,11 @@ from typing import Dict
 
 received: Dict[int, bool] = {}
 first_sent: Dict[int,int] = {} 
-pkt_buf: Queue(int) = Queue()
+pkt_buf: Queue((int, int)) = Queue() # queue of tuple(pkt_id, time)
 
 
 # Enqueue a list of elements
-pkt_buf.put(1)
+pkt_buf.put((1,0))
 tokens = 1
 last_pkt_sent = 1
 last_ack_sent = 0
@@ -19,18 +19,20 @@ cwnd = 1
 state = 0 #SlowStart. Fast Recovery is 1 
 num_dup = 0
 tau = 0
+C = 2 #speed for sending packages
 
 ##set of constants for updating the RTO
 init_r :bool = False
-MINUNIT = 5
+MINUNIT = 4
 ralpha = 1/8
 rbeta = 1/4
 rK = 4
 rG = MINUNIT
-rto = 10
+rto = 2
 
 #propagation delay
 Rm = 5
+ack_buf = []
 
 random.seed(5)
 
@@ -42,16 +44,16 @@ while state == 0:
     # choose a number of tokens to remove. 
     num_tokens = random.randint(0, bound)
     # remove the tokens and add 1 for the next time step, not to exceed K
-    tokens = min(tokens - num_tokens + 1,K)
+    tokens = min(tokens - num_tokens + C, K)
     # prepare packets to be sent to queue; if first transmission, record time
     pkts_sent = []
     for _ in range(num_tokens):
-        pkt = pkt_buf.get()
+        pkt, t = pkt_buf.get()
         ##set to tau on first transmission and 0 on retransmits
         if pkt not in first_sent:
-            first_sent[pkt] = tau
+            first_sent[pkt] = t
         else:
-            first_sent[pkt] = 0
+            first_sent[pkt] = -1
         pkts_sent.append(pkt)
 # Reciver processing incoming packets (in pkts_sent):
 # for each packet sent
@@ -60,7 +62,7 @@ while state == 0:
 # and add the previous one (highest consecutive received) to
 #the ack buffer
    
-    ack_buf = []
+    #ack_buf = []
 #    print("building new ack buffer")
     while pkts_sent:
         pkt = pkts_sent.pop(0)
@@ -77,6 +79,7 @@ while state == 0:
 #
 #Sender processing acks (in ack_buf)
     while ack_buf:
+        #print(f"ack_buf is {ack_buf} first_sent is {first_sent}")
         #remove an ack from ack_buf
         ack = ack_buf.pop(0)
         if ack > last_ack_rcvd:
@@ -84,7 +87,7 @@ while state == 0:
             ok_to_update: bool = False
             tmp_pkt: int = last_ack_rcvd
             while tmp_pkt < ack:
-                if (tmp_pkt+1) in first_sent and first_sent[tmp_pkt+1] > 0:
+                if (tmp_pkt+1) in first_sent and first_sent[tmp_pkt+1] >= 0:
                     tmp_pkt += 1
             if tmp_pkt == ack:
                 ok_to_update = True
@@ -115,10 +118,7 @@ while state == 0:
             ## that is, to fill cwnd w/o overflowing the buffer
             while pkt_buf.qsize() < beta and  (last_pkt_sent - ack) < cwnd:
                 last_pkt_sent += 1
-                pkt_buf.put(last_pkt_sent)
-#                #time to sent
-#                if last_pkt_sent not in first_sent:
-#                    first_sent[last_pkt_sent] = tau
+                pkt_buf.put((last_pkt_sent, tau))
             if last_pkt_sent - ack < cwnd:
                 ### cwnd is larger than buffer's capacity, then pkts are dropped
                 ### suffices to increase last_pkt_sent 
