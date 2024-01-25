@@ -20,11 +20,11 @@ from typing import List
 num_dup = 0
 tau = 0
 
-C = 2 #speed for sending packages
+C = 2 #speed for sent packages
 #keep token length <=D
 tokens: List[int] = []
 tokens.append(C)
-D = 5#time to live for tokens
+D = 1#time to live for tokens
 
 ##set of constants for updating the RTO
 init_r :bool = False
@@ -42,16 +42,19 @@ ack_buf = []
 random.seed(5)
 
 
-def checkOverflow(tokens: List[int], bound: int) -> None:
+def removeOverflow(tokens: List[int], num_remove: int) -> None:
     for i in range(len(tokens)):
-        if bound>0:
+        print(f"bound is {num_remove}")
+        if num_remove>0:
             if tokens[i]>0:
-                if tokens[i]<=bound:
+                if tokens[i]<=num_remove:
+                    num_remove -= tokens[i]
                     tokens[i] = 0
-                    bound -= tokens[i]
                 else:
-                    tokens[i] -= bound
-                    bound = 0
+                    tokens[i] -= num_remove
+                    num_remove = 0
+        else:
+            break
     return
 
 #STEP
@@ -65,10 +68,11 @@ while state == 0:
     # choose a number of tokens to remove. 
     num_tokens = random.randint(0, bound)
     # remove the tokens and add 1 for the next time step, not to exceed K
-    checkOverflow(tokens, num_tokens)
+    if num_tokens>0:
+        removeOverflow(tokens, num_tokens)
     tokens.append(C)
     if sum(tokens)>K:
-       checkOverflow(tokens, sum(tokens)-K)   
+       removeOverflow(tokens, sum(tokens)-K)   
     #tokens = min(tokens - num_tokens + C, K)
     # prepare packets to be sent to queue; if first transmission, record time
     pkts_sent = []
@@ -94,7 +98,6 @@ while state == 0:
         received[pkt] = True
         print(f"received packet {pkt}")
         cur = last_ack_sent + 1
-        ##????I believe there is some problem
         while received.get(cur, False):
             cur += 1
         cur -= 1
