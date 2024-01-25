@@ -24,7 +24,7 @@ C = 2 #speed for sent packages
 #keep token length <=D
 tokens: List[int] = []
 tokens.append(C)
-D = 1#time to live for tokens
+D = 2#time to live for tokens
 
 ##set of constants for updating the RTO
 init_r :bool = False
@@ -41,7 +41,7 @@ ack_buf = []
 
 random.seed(5)
 
-
+#remove used token from the tokens
 def removeOverflow(tokens: List[int], num_remove: int) -> None:
     for i in range(len(tokens)):
         print(f"bound is {num_remove}")
@@ -67,18 +67,18 @@ while state == 0:
     bound = min(sum(tokens), pkt_buf.qsize())
     # choose a number of tokens to remove. 
     num_tokens = random.randint(0, bound)
-    # remove the tokens and add 1 for the next time step, not to exceed K
+    # remove the tokens and add C for the next time step, not to exceed K
     if num_tokens>0:
         removeOverflow(tokens, num_tokens)
     tokens.append(C)
     if sum(tokens)>K:
        removeOverflow(tokens, sum(tokens)-K)   
-    #tokens = min(tokens - num_tokens + C, K)
+    
     # prepare packets to be sent to queue; if first transmission, record time
     pkts_sent = []
     for _ in range(num_tokens):
         pkt, t = pkt_buf.get()
-        ##set to tau on first transmission and 0 on retransmits
+        ##assign t to the first visited packet
         if pkt not in first_sent:
             first_sent[pkt] = t
         else:
