@@ -20,7 +20,7 @@ from typing import List
 num_dup = 0
 tau = 0
 
-C = 2 #speed for sent packages
+C = 2 #speed for token sending
 #keep token length <=D
 tokens: List[int] = []
 tokens.append(C)
@@ -28,6 +28,7 @@ D = 2#time to live for tokens
 
 ##set of constants for updating the RTO
 init_r :bool = False
+srtt = -1
 MINUNIT = 4
 ralpha = 1/8
 rbeta = 1/4
@@ -36,7 +37,7 @@ rG = MINUNIT
 rto = 2
 
 #propagation delay
-Rm = 5
+Rm = 3
 ack_buf = []
 
 random.seed(5)
@@ -44,7 +45,6 @@ random.seed(5)
 #remove used token from the tokens
 def removeOverflow(tokens: List[int], num_remove: int) -> None:
     for i in range(len(tokens)):
-        print(f"bound is {num_remove}")
         if num_remove>0:
             if tokens[i]>0:
                 if tokens[i]<=num_remove:
@@ -56,6 +56,29 @@ def removeOverflow(tokens: List[int], num_remove: int) -> None:
         else:
             break
     return
+
+#ok_to_update
+def okToUpdate(cur: int, ack: int, first_sent: Dict[int, int]) -> bool:
+    ok_to_update = False
+    while cur < ack:
+        if (cur+1) in first_sent and first_sent[cur+1] >= 0:
+            cur += 1
+    if cur == ack:
+        ok_to_update = True
+    return ok_to_update
+
+#update rto
+def updateTripTime(first_sent: Dict[int, int], last_ack: int, t: int, srtt: float, rG: int, ralpha: float) -> List[int]:
+    rtt = t - first_sent[last_ack_rcvd + 1] ## fixed: not correct. only if first_sent[last_ack_rcvd + 1..ack] > 0
+    if srtt<0:
+        srtt = rtt
+        #rttvar = rtt/2
+    else:
+        #rttvar = (1-rbeta)*rttvar + rbeta*abs(srtt-rtt)
+        srtt = (1-ralpha)*srtt + ralpha*rtt
+    rto = srtt + rG ##ignore rttvar now
+    return [rtt, rto, srtt]
+    
 
 #STEP
 while state == 0:
@@ -91,7 +114,7 @@ while state == 0:
 # and add the previous one (highest consecutive received) to
 #the ack buffer
    
-    #ack_buf = []
+    ack_buf_tau = []
 #    print("building new ack buffer")
     while pkts_sent:
         pkt = pkts_sent.pop(0)
@@ -101,64 +124,69 @@ while state == 0:
         while received.get(cur, False):
             cur += 1
         cur -= 1
-        ack_buf.append(cur)
+        ack_buf_tau.append(cur)
         last_ack_sent = cur
+    ack_buf.append(ack_buf_tau)
 
-#
+
 #Sender processing acks (in ack_buf)
-    while ack_buf:
+    if len(ack_buf)>Rm:
         #print(f"ack_buf is {ack_buf} first_sent is {first_sent}")
         #remove an ack from ack_buf
-        ack = ack_buf.pop(0)
-        if ack > last_ack_rcvd:
-            # if a new ack, check the pkt[last_ack_rcvd+1: ark) visited once
-            ok_to_update: bool = False
-            tmp_pkt: int = last_ack_rcvd
-            while tmp_pkt < ack:
-                if (tmp_pkt+1) in first_sent and first_sent[tmp_pkt+1] >= 0:
-                    tmp_pkt += 1
-            if tmp_pkt == ack:
-                ok_to_update = True
-    
-            ##update RTO when ok_to_calc
-            if(ok_to_update):
-                rtt = tau - first_sent[last_ack_rcvd + 1] ## fixed: not correct. only if first_sent[last_ack_rcvd + 1..ack] > 0
-                if not init_r:
-                    srtt = rtt
-                    #rttvar = rtt/2
-                    init_r = True
-                else:
-                    #rttvar = (1-rbeta)*rttvar + rbeta*abs(srtt-rtt)
-                    srtt = (1-ralpha)*srtt + ralpha*rtt
-                rto = srtt + rG ##ignore rttvar now
-                print(f"rtt is {rtt} and rto is {rto}")
-                print(f"New RTT sample with ack: {ack} and packet {last_ack_rcvd + 1} current rto is {rto} ")
+        acklist = ack_buf.pop(0)
+        while(acklist):
+            ack = acklist.pop(0)
+            if ack > last_ack_rcvd:
+                # if a new ack, check the pkt[last_ack_rcvd+1: ark) visited once
+                ok_to_update: bool = okToUpdate(last_ack_rcvd, ack, first_sent)
+    #            False
+    #            tmp_pkt: int = last_ack_rcvd
+    #            while tmp_pkt < ack:
+    #                if (tmp_pkt+1) in first_sent and first_sent[tmp_pkt+1] >= 0:
+    #                    tmp_pkt += 1
+    #            if tmp_pkt == ack:
+    #                ok_to_update = True
         
-                
-                
-            ## update last_ack
-            last_ack_rcvd = ack
-            ## indicate it's the first time ack is received
-            num_dup = 1
-            ## increment cwnd 
-            cwnd +=  1
-            ## fill in pkt_buf with as many new packets as possible
-            ## that is, to fill cwnd w/o overflowing the buffer
-            while pkt_buf.qsize() < beta and  (last_pkt_sent - ack) < cwnd:
-                last_pkt_sent += 1
-                pkt_buf.put((last_pkt_sent, tau))
-            if last_pkt_sent - ack < cwnd:
-                ### cwnd is larger than buffer's capacity, then pkts are dropped
-                ### suffices to increase last_pkt_sent 
-                last_pkt_sent = cwnd + ack
-        else:
-            # if a repeat ack then increment num_dup 
-            num_dup += 1
-#           print(f"Duplicate number {num_dup} of  {ack}")
-        if num_dup == 4:
-            # after 4 consecutive acks move to fast recovery 
-            state = 1
-            print(f"going to fast recovery with cwnd: {cwnd} qsize: {pkt_buf.qsize()} and last ack: {ack}")
-    
+                ##update RTO when ok_to_calc
+                if(ok_to_update):
+                    rtt, rto, srtt = updateTripTime(first_sent, last_ack_rcvd, tau, srtt, rG, ralpha)
+    #                rtt = tau - first_sent[last_ack_rcvd + 1] ## fixed: not correct. only if first_sent[last_ack_rcvd + 1..ack] > 0
+    #                if not init_r:
+    #                    srtt = rtt
+    #                    #rttvar = rtt/2
+    #                    init_r = True
+    #                else:
+    #                    #rttvar = (1-rbeta)*rttvar + rbeta*abs(srtt-rtt)
+    #                    srtt = (1-ralpha)*srtt + ralpha*rtt
+    #                rto = srtt + rG ##ignore rttvar now
+                    print(f"rtt is {rtt} and rto is {rto}")
+                    print(f"New RTT sample with ack: {ack} and packet {last_ack_rcvd + 1} current rto is {rto} ")
+            
+                    
+                    
+                ## update last_ack
+                last_ack_rcvd = ack
+                ## indicate it's the first time ack is received
+                num_dup = 1
+                ## increment cwnd 
+                cwnd +=  1
+                ## fill in pkt_buf with as many new packets as possible
+                ## that is, to fill cwnd w/o overflowing the buffer
+                while pkt_buf.qsize() < beta and  (last_pkt_sent - ack) < cwnd:
+                    last_pkt_sent += 1
+                    pkt_buf.put((last_pkt_sent, tau))
+                if last_pkt_sent - ack < cwnd:
+                    ### cwnd is larger than buffer's capacity, then pkts are dropped
+                    ### suffices to increase last_pkt_sent 
+                    last_pkt_sent = cwnd + ack
+            else:
+                # if a repeat ack then increment num_dup 
+                num_dup += 1
+    #           print(f"Duplicate number {num_dup} of  {ack}")
+            if num_dup == 4:
+                # after 4 consecutive acks move to fast recovery 
+                state = 1
+                print(f"going to fast recovery with cwnd: {cwnd} qsize: {pkt_buf.qsize()} and last ack: {ack}")
+        
             
 
