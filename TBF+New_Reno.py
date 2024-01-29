@@ -42,7 +42,7 @@ ack_buf = []
 
 random.seed(5)
 
-#remove used token from the tokens
+#remove used token from the tokens buffer
 def removeOverflow(tokens: List[int], num_remove: int) -> None:
     for i in range(len(tokens)):
         if num_remove>0:
@@ -94,6 +94,7 @@ while state == 0:
     if num_tokens>0:
         removeOverflow(tokens, num_tokens)
     tokens.append(C)
+    #remove token when overflow the token buffer
     if sum(tokens)>K:
        removeOverflow(tokens, sum(tokens)-K)   
     
@@ -139,31 +140,13 @@ while state == 0:
             if ack > last_ack_rcvd:
                 # if a new ack, check the pkt[last_ack_rcvd+1: ark) visited once
                 ok_to_update: bool = okToUpdate(last_ack_rcvd, ack, first_sent)
-    #            False
-    #            tmp_pkt: int = last_ack_rcvd
-    #            while tmp_pkt < ack:
-    #                if (tmp_pkt+1) in first_sent and first_sent[tmp_pkt+1] >= 0:
-    #                    tmp_pkt += 1
-    #            if tmp_pkt == ack:
-    #                ok_to_update = True
         
                 ##update RTO when ok_to_calc
                 if(ok_to_update):
                     rtt, rto, srtt = updateTripTime(first_sent, last_ack_rcvd, tau, srtt, rG, ralpha)
-    #                rtt = tau - first_sent[last_ack_rcvd + 1] ## fixed: not correct. only if first_sent[last_ack_rcvd + 1..ack] > 0
-    #                if not init_r:
-    #                    srtt = rtt
-    #                    #rttvar = rtt/2
-    #                    init_r = True
-    #                else:
-    #                    #rttvar = (1-rbeta)*rttvar + rbeta*abs(srtt-rtt)
-    #                    srtt = (1-ralpha)*srtt + ralpha*rtt
-    #                rto = srtt + rG ##ignore rttvar now
                     print(f"rtt is {rtt} and rto is {rto}")
                     print(f"New RTT sample with ack: {ack} and packet {last_ack_rcvd + 1} current rto is {rto} ")
             
-                    
-                    
                 ## update last_ack
                 last_ack_rcvd = ack
                 ## indicate it's the first time ack is received
