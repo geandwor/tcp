@@ -20,7 +20,7 @@ from typing import List
 num_dup = 0
 tau = 0
 
-C = 2 #speed for token sending
+C = 3 #speed for token sending
 #keep token length <=D
 tokens: List[int] = []
 tokens.append(C)
@@ -43,7 +43,7 @@ ack_buf = []
 random.seed(5)
 
 #remove used token from the tokens buffer
-def removeOverflow(tokens: List[int], num_remove: int) -> None:
+def removeOverFlow(tokens: List[int], num_remove: int) -> None:
     for i in range(len(tokens)):
         if num_remove>0:
             if tokens[i]>0:
@@ -63,13 +63,15 @@ def okToUpdate(cur: int, ack: int, first_sent: Dict[int, int]) -> bool:
     while cur < ack:
         if (cur+1) in first_sent and first_sent[cur+1] >= 0:
             cur += 1
+        else:
+            break
     if cur == ack:
         ok_to_update = True
     return ok_to_update
 
 #update rto
-def updateTripTime(first_sent: Dict[int, int], last_ack: int, t: int, srtt: float, rG: int, ralpha: float) -> List[int]:
-    rtt = t - first_sent[last_ack_rcvd + 1] ## fixed: not correct. only if first_sent[last_ack_rcvd + 1..ack] > 0
+def updateTripTime(first_sent: Dict[int, int], last_ack: int, cur: int, srtt: float, rG: int, ralpha: float) -> List[int]:
+    rtt = cur - first_sent[last_ack_rcvd + 1] ## fixed: not correct. only if first_sent[last_ack_rcvd + 1..ack] > 0
     if srtt<0:
         srtt = rtt
         #rttvar = rtt/2
@@ -82,6 +84,7 @@ def updateTripTime(first_sent: Dict[int, int], last_ack: int, t: int, srtt: floa
 
 #STEP
 while state == 0:
+    #print(f"time is {tau}")
     tau += 1
     # max number of tokens 
     if(len(tokens)>D):
@@ -92,13 +95,13 @@ while state == 0:
     num_tokens = random.randint(0, bound)
     # remove the tokens and add C for the next time step, not to exceed K
     if num_tokens>0:
-        removeOverflow(tokens, num_tokens)
+        removeOverFlow(tokens, num_tokens)
     tokens.append(C)
     #remove token when overflow the token buffer
     if sum(tokens)>K:
-       removeOverflow(tokens, sum(tokens)-K)   
+       removeOverFlow(tokens, sum(tokens)-K)   
     
-    # prepare packets to be sent to queue; if first transmission, record time
+    # prepare packets to be sent to queue; if first transmission, record time; otherwise record -1
     pkts_sent = []
     for _ in range(num_tokens):
         pkt, t = pkt_buf.get()
@@ -125,13 +128,20 @@ while state == 0:
         while received.get(cur, False):
             cur += 1
         cur -= 1
+        #to mimic loss of ark
+#        ind = random.randint(0,100)%100
+#        print(f"indicator is {ind}")
+#        if cur==1:
+#            ack_buf_tau.append(cur)
+#        elif(ind%2==1):
+#            ack_buf_tau.append(cur)
         ack_buf_tau.append(cur)
         last_ack_sent = cur
     ack_buf.append(ack_buf_tau)
 
 
 #Sender processing acks (in ack_buf)
-    if len(ack_buf)>Rm:
+    while len(ack_buf)>Rm:
         #print(f"ack_buf is {ack_buf} first_sent is {first_sent}")
         #remove an ack from ack_buf
         acklist = ack_buf.pop(0)
